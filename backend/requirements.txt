@@ -8,3 +8,4 @@ langchain-pinecone
 pymupdf
 pydantic
 pinecone-client
+langchain-google-genai
