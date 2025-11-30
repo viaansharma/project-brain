@@ -4,6 +4,3 @@ venv/
 .env
 .env.local
 .DS_Store
-dist/
-build/
-*.pdf
