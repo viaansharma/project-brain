@@ -2,11 +2,12 @@ fastapi
 uvicorn
 python-dotenv
 
-# Force a recent, stable version of langchain to fix the "chains" missing error
+# STRICT VERSIONS to prevent "phantom" package installation
 
-langchain>=0.2.0
+langchain==0.3.7
+langchain-community==0.3.7
+langchain-core==0.3.15
 langchain-google-genai
 langchain-pinecone
-langchain-community
 pinecone-client
 pydantic
