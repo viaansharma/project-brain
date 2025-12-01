@@ -152,6 +152,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from google.api_core.exceptions import ResourceExhausted
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings 
 from langchain_pinecone import PineconeVectorStore
 from langchain.chains import create_retrieval_chain
@@ -181,8 +182,6 @@ class ChatRequest(BaseModel):
     query: str
 
 # 3. Setup Models
-# CHANGED: Switched to newer 'text-embedding-004' model.
-# This often has better limits/performance than embedding-001.
 print("⏳ Connecting to Google Embeddings...")
 embeddings = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004")
 
@@ -192,11 +191,16 @@ vectorstore = PineconeVectorStore(
     embedding=embeddings
 )
 
+# Root Route
+@app.get("/")
+def read_root():
+    return {"status": "✅ Project Brain API is Running!", "docs_url": "/docs"}
+
 @app.post("/chat")
 async def chat(request: ChatRequest):
     try:
-        # Reduced k=3 to save tokens/quota
-        retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+        # INCREASED k=25 (Read more pages to find the answer)
+        retriever = vectorstore.as_retriever(search_kwargs={"k": 25})
         
         llm = ChatGoogleGenerativeAI(
             model="gemini-2.0-flash", 
@@ -216,6 +220,13 @@ async def chat(request: ChatRequest):
 
         chain = create_retrieval_chain(retriever, create_stuff_documents_chain(llm, prompt))
         print(f"🤔 Thinking about: {request.query}")
+        
+        # --- DEBUG: See what documents are actually retrieved ---
+        docs = retriever.invoke(request.query)
+        print(f"🔍 Retrieved {len(docs)} documents for context.")
+        if len(docs) > 0:
+            print(f"📄 First Doc Preview: {docs[0].page_content[:200]}...") # Show first 200 chars
+
         response = chain.invoke({"input": request.query})
 
         sources = []
@@ -232,20 +243,22 @@ async def chat(request: ChatRequest):
         error_msg = str(e)
         print(f"❌ CRASH IN CHAT ENDPOINT: {error_msg}")
         
-        # ROBUST ERROR HANDLING: Check specifically for the 429 code in the string
-        if "429" in error_msg or "Quota exceeded" in error_msg:
+        if "429" in error_msg or "Quota" in error_msg or "quota" in error_msg or "ResourceExhausted" in error_msg:
              return {
                 "answer": "⚠️ AI Overload: Google's free usage limit has been reached. Please wait 2-5 minutes and try again.", 
                 "sources": []
             }
             
-        raise HTTPException(status_code=500, detail=error_msg)
+        return {
+            "answer": "❌ Internal Server Error. Please check the backend logs.", 
+            "sources": []
+        }
 
 @app.post("/extract")
 async def extract_schedule():
     try:
         print("🔍 Searching for door schedule in documents...")
-        retriever = vectorstore.as_retriever(search_kwargs={"k": 15})
+        retriever = vectorstore.as_retriever(search_kwargs={"k": 25}) # Increased here too
         docs = retriever.invoke("door schedule list hardware openings frame material width height fire rating")
         
         context_text = "\n\n".join([d.page_content for d in docs])
@@ -300,5 +313,4 @@ async def extract_schedule():
 
     except Exception as e:
         print(f"❌ CRASH IN EXTRACT ENDPOINT: {e}")
-        # Even if it crashes, return empty list so UI doesn't break
         return {"doors": []}
