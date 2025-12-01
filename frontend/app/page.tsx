@@ -159,6 +159,8 @@
 //   );
 // }
 
+
+
 "use client";
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
@@ -174,12 +176,17 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [schedule, setSchedule] = useState<any>(null);
 
-  // --- LOGIN HANDLER ---
+  // --- STRICT LOGIN HANDLER ---
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    // Simple check to satisfy assignment requirement
-    if (email.trim().length > 0) {
+    
+    // REQUIREMENT: Only allow the specific test user
+    const validUser = "testingcheckuser1234@gmail.com";
+
+    if (email.trim() === validUser) {
       setIsLoggedIn(true);
+    } else {
+      alert("⛔ Access Denied: You must use the authorized test email to access this system.");
     }
   };
 
@@ -197,16 +204,20 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: input }),
       });
+      
       const data = await res.json();
       
-      // Add AI response to chat
+      // ✅ FIX: Directly use the 'answer' from backend. 
+      // If the backend catches a 429 Quota error, it sends the polite warning here.
       setMessages((prev) => [
         ...prev,
         { role: "ai", content: data.answer, sources: data.sources },
       ]);
+
     } catch (e) {
       console.error(e);
-      setMessages((prev) => [...prev, { role: "ai", content: "⚠️ Error connecting to server." }]);
+      // This only happens if the server is completely offline (Network Error)
+      setMessages((prev) => [...prev, { role: "ai", content: "⚠️ Network Error: Could not reach the backend server." }]);
     }
     setLoading(false);
   };
@@ -219,10 +230,17 @@ export default function Home() {
         method: "POST",
       });
       const data = await res.json();
-      setSchedule(data.doors);
-      setMessages(prev => [...prev, { role: "ai", content: "✅ I have generated the door schedule." }]);
+      
+      if (data.doors && data.doors.length > 0) {
+        setSchedule(data.doors);
+        setMessages(prev => [...prev, { role: "ai", content: "✅ I have generated the door schedule." }]);
+      } else {
+        setMessages(prev => [...prev, { role: "ai", content: "⚠️ Could not extract data (or AI quota exceeded)." }]);
+      }
+      
     } catch (e) {
       console.error(e);
+      setMessages(prev => [...prev, { role: "ai", content: "⚠️ Error generating schedule." }]);
     }
     setLoading(false);
   };
@@ -234,12 +252,13 @@ export default function Home() {
         <div className="p-8 bg-white rounded shadow-md w-96 border">
           <h1 className="text-2xl font-bold mb-4 text-center text-blue-800">Project Brain 🧠</h1>
           <p className="text-gray-600 mb-6 text-sm text-center">
-            Please log in to access the Construction Intelligence System.
+            Restricted Access System
           </p>
           <form onSubmit={handleLogin} className="flex flex-col gap-4">
+            <label className="text-xs font-bold text-gray-500 uppercase">Authorized Email</label>
             <input
               type="email"
-              placeholder="Enter your email"
+              placeholder="user@example.com"
               className="border p-2 rounded text-black focus:outline-none focus:ring-2 focus:ring-blue-500"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -252,7 +271,7 @@ export default function Home() {
               Enter Project
             </button>
             <p className="text-xs text-gray-400 text-center mt-2">
-              (Try: testingcheckuser1234@gmail.com)
+              (Hint: Check assignment PDF for credentials)
             </p>
           </form>
         </div>
