@@ -152,8 +152,6 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-# CHANGED: Added specific exception for Google Quota errors
-from google.api_core.exceptions import ResourceExhausted
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings 
 from langchain_pinecone import PineconeVectorStore
 from langchain.chains import create_retrieval_chain
@@ -174,7 +172,7 @@ if not google_key or not pinecone_key:
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # For production, replace * with your Vercel URL
+    allow_origins=["*"], 
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -183,8 +181,10 @@ class ChatRequest(BaseModel):
     query: str
 
 # 3. Setup Models
+# CHANGED: Switched to newer 'text-embedding-004' model.
+# This often has better limits/performance than embedding-001.
 print("⏳ Connecting to Google Embeddings...")
-embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+embeddings = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004")
 
 print(f"⏳ Connecting to Pinecone Index: {index_name}...")
 vectorstore = PineconeVectorStore(
@@ -195,7 +195,8 @@ vectorstore = PineconeVectorStore(
 @app.post("/chat")
 async def chat(request: ChatRequest):
     try:
-        retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
+        # Reduced k=3 to save tokens/quota
+        retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
         
         llm = ChatGoogleGenerativeAI(
             model="gemini-2.0-flash", 
@@ -226,26 +227,25 @@ async def chat(request: ChatRequest):
                 })
 
         return {"answer": response["answer"], "sources": sources}
-
-    except ResourceExhausted:
-        print("⚠️ Google Free Tier Quota Exceeded!")
-        return {
-            "answer": "⚠️ System Overload: I have used up my free AI quota for this minute. Please wait 60 seconds and try again.", 
-            "sources": []
-        }
     
     except Exception as e:
-        print(f"❌ CRASH IN CHAT ENDPOINT: {e}")
-        return {
-            "answer": "❌ Internal Server Error. Please check the backend logs.", 
-            "sources": []
-        }
+        error_msg = str(e)
+        print(f"❌ CRASH IN CHAT ENDPOINT: {error_msg}")
+        
+        # ROBUST ERROR HANDLING: Check specifically for the 429 code in the string
+        if "429" in error_msg or "Quota exceeded" in error_msg:
+             return {
+                "answer": "⚠️ AI Overload: Google's free usage limit has been reached. Please wait 2-5 minutes and try again.", 
+                "sources": []
+            }
+            
+        raise HTTPException(status_code=500, detail=error_msg)
 
 @app.post("/extract")
 async def extract_schedule():
     try:
         print("🔍 Searching for door schedule in documents...")
-        retriever = vectorstore.as_retriever(search_kwargs={"k": 20})
+        retriever = vectorstore.as_retriever(search_kwargs={"k": 15})
         docs = retriever.invoke("door schedule list hardware openings frame material width height fire rating")
         
         context_text = "\n\n".join([d.page_content for d in docs])
@@ -298,11 +298,7 @@ async def extract_schedule():
         print(f"✅ Extracted {len(doors_list)} doors!")
         return {"doors": doors_list}
 
-    except ResourceExhausted:
-        print("⚠️ Google Free Tier Quota Exceeded during Extraction!")
-        # Return empty list so the frontend doesn't crash
-        return {"doors": []}
-
     except Exception as e:
         print(f"❌ CRASH IN EXTRACT ENDPOINT: {e}")
+        # Even if it crashes, return empty list so UI doesn't break
         return {"doors": []}
