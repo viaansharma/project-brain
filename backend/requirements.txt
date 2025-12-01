@@ -2,11 +2,13 @@ fastapi
 uvicorn
 python-dotenv
 
-# STRICT VERSIONS to prevent "phantom" package installation
+# We keep these fixed to ensure they work together
 
 langchain==0.3.7
 langchain-community==0.3.7
-langchain-core==0.3.15
+
+# REMOVED: langchain-core (Let pip install the correct version automatically)
+
 langchain-google-genai
 langchain-pinecone
 pinecone-client
