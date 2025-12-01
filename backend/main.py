@@ -1,9 +1,11 @@
 import os
+import json
+import re
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Any
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_pinecone import PineconeVectorStore
@@ -29,18 +31,6 @@ app.add_middleware(
 
 class ChatRequest(BaseModel):
     query: str
-
-# --- ROBUST DATA MODEL (Everything Optional + String) ---
-class DoorItem(BaseModel):
-    mark: Optional[str] = Field(description="Door mark number, e.g., D-101")
-    location: Optional[str] = Field(description="Room name or location")
-    width_mm: Optional[str] = Field(description="Width (as text)")
-    height_mm: Optional[str] = Field(description="Height (as text)")
-    fire_rating: Optional[str] = Field(description="Fire rating")
-    material: Optional[str] = Field(description="Door material")
-
-class DoorSchedule(BaseModel):
-    doors: List[DoorItem]
 
 # 3. Setup Models
 print("⏳ Loading Local Embeddings (MiniLM)...")
@@ -95,39 +85,78 @@ async def chat(request: ChatRequest):
 async def extract_schedule():
     try:
         print("🔍 Searching for door schedule in documents...")
-        retriever = vectorstore.as_retriever(search_kwargs={"k": 10})
-        docs = retriever.invoke("door schedule list hardware openings")
+        # Increase k to capture more table rows
+        retriever = vectorstore.as_retriever(search_kwargs={"k": 20})
+        docs = retriever.invoke("door schedule list hardware openings frame material width height fire rating")
         
         context_text = "\n\n".join([d.page_content for d in docs])
         print(f"📄 Found context length: {len(context_text)} characters")
 
+        # --- MANUAL JSON MODE (Prevents Pydantic Crashes) ---
         llm = ChatGoogleGenerativeAI(
             model="gemini-2.0-flash", 
             temperature=0,
             google_api_key=google_key
         )
-        structured_llm = llm.with_structured_output(DoorSchedule)
-
+        
         prompt = f"""
-        Analyze the text below and extract the Door Schedule table.
+        You are a smart data extraction AI. 
+        Your goal is to extract the DOOR SCHEDULE table from the messy text below.
         
-        CRITICAL INSTRUCTION: The text might be messy (e.g. '2100 1 HR' might be on the same line). 
-        You must infer the columns based on the headers 'Mark', 'Location', 'Width', 'Height', 'Fire Rating', 'Material'.
+        The text comes from a PDF construction drawing (Attachment 7).
+        Look for rows starting with marks like "D-101", "D-102", "101", etc.
         
-        Extract every single door row starting with 'D-'.
+        Return ONLY a valid JSON object. Do not include markdown formatting (like ```json).
         
-        TEXT CONTENT:
+        The JSON structure must strictly follow this format:
+        {{
+            "doors": [
+                {{
+                    "mark": "Door Number (e.g. D-101)",
+                    "location": "Room Name or Location",
+                    "width_mm": "Width (e.g. 900)",
+                    "height_mm": "Height (e.g. 2100)",
+                    "fire_rating": "Rating (e.g. 1 HR, 45 min, or None)",
+                    "material": "Material (e.g. HM, Wood, Alum)"
+                }}
+            ]
+        }}
+        
+        If you cannot find any specific doors, return {{ "doors": [] }}.
+        
+        MESSY TEXT CONTENT:
         {context_text}
         """
         
-        print("🤖 Asking AI to extract...")
-        result = structured_llm.invoke(prompt)
+        print("🤖 Asking AI to extract JSON...")
+        response = llm.invoke(prompt)
         
-        print(f"✅ Extracted {len(result.doors)} doors!")
-        for d in result.doors:
-            print(f" - Found: {d.mark} ({d.location})")
+        # Clean the response to ensure valid JSON
+        # Sometimes AI adds ```json at the start/end
+        clean_json = response.content.replace("```json", "").replace("```", "").strip()
+        
+        try:
+            data = json.loads(clean_json)
+        except json.JSONDecodeError:
+            print("⚠️ JSON Decode Error. Attempting to repair...")
+            # Fallback: try to find the first { and last }
+            match = re.search(r"\{.*\}", clean_json, re.DOTALL)
+            if match:
+                data = json.loads(match.group())
+            else:
+                return {"doors": []}
 
-        return result
+        # Safely extract the list
+        doors_list = data.get("doors", [])
+        print(f"✅ Extracted {len(doors_list)} doors!")
+        
+        # Debug print
+        for d in doors_list:
+            print(f" - Found: {d.get('mark')} - {d.get('location')}")
+
+        return {"doors": doors_list}
+
     except Exception as e:
         print(f"❌ CRASH IN EXTRACT ENDPOINT: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # Return empty list so frontend doesn't break
+        return {"doors": []}
