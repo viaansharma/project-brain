@@ -4,10 +4,8 @@ import re
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
-from typing import List, Optional, Any
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_huggingface import HuggingFaceEmbeddings
+from pydantic import BaseModel
+from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings 
 from langchain_pinecone import PineconeVectorStore
 from langchain.chains import create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
@@ -22,9 +20,12 @@ google_key = os.getenv("GOOGLE_API_KEY")
 pinecone_key = os.getenv("PINECONE_API_KEY")
 index_name = os.getenv("PINECONE_INDEX_NAME")
 
+if not google_key or not pinecone_key:
+    raise ValueError("❌ Missing API Keys. Please check your .env settings.")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"], # For production, replace * with your Vercel URL
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -33,8 +34,10 @@ class ChatRequest(BaseModel):
     query: str
 
 # 3. Setup Models
-print("⏳ Loading Local Embeddings (MiniLM)...")
-embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+# CHANGED: Switched to Google Embeddings (Lightweight, no download required)
+# NOTE: Ensure your Pinecone Index is set to 768 Dimensions for this model.
+print("⏳ Connecting to Google Embeddings...")
+embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
 
 print(f"⏳ Connecting to Pinecone Index: {index_name}...")
 vectorstore = PineconeVectorStore(
@@ -85,14 +88,12 @@ async def chat(request: ChatRequest):
 async def extract_schedule():
     try:
         print("🔍 Searching for door schedule in documents...")
-        # Increase k to capture more table rows
         retriever = vectorstore.as_retriever(search_kwargs={"k": 20})
         docs = retriever.invoke("door schedule list hardware openings frame material width height fire rating")
         
         context_text = "\n\n".join([d.page_content for d in docs])
         print(f"📄 Found context length: {len(context_text)} characters")
 
-        # --- MANUAL JSON MODE (Prevents Pydantic Crashes) ---
         llm = ChatGoogleGenerativeAI(
             model="gemini-2.0-flash", 
             temperature=0,
@@ -102,11 +103,7 @@ async def extract_schedule():
         prompt = f"""
         You are a smart data extraction AI. 
         Your goal is to extract the DOOR SCHEDULE table from the messy text below.
-        
-        The text comes from a PDF construction drawing (Attachment 7).
-        Look for rows starting with marks like "D-101", "D-102", "101", etc.
-        
-        Return ONLY a valid JSON object. Do not include markdown formatting (like ```json).
+        Return ONLY a valid JSON object.
         
         The JSON structure must strictly follow this format:
         {{
@@ -122,8 +119,6 @@ async def extract_schedule():
             ]
         }}
         
-        If you cannot find any specific doors, return {{ "doors": [] }}.
-        
         MESSY TEXT CONTENT:
         {context_text}
         """
@@ -131,32 +126,21 @@ async def extract_schedule():
         print("🤖 Asking AI to extract JSON...")
         response = llm.invoke(prompt)
         
-        # Clean the response to ensure valid JSON
-        # Sometimes AI adds ```json at the start/end
         clean_json = response.content.replace("```json", "").replace("```", "").strip()
         
         try:
             data = json.loads(clean_json)
         except json.JSONDecodeError:
-            print("⚠️ JSON Decode Error. Attempting to repair...")
-            # Fallback: try to find the first { and last }
             match = re.search(r"\{.*\}", clean_json, re.DOTALL)
             if match:
                 data = json.loads(match.group())
             else:
                 return {"doors": []}
 
-        # Safely extract the list
         doors_list = data.get("doors", [])
         print(f"✅ Extracted {len(doors_list)} doors!")
-        
-        # Debug print
-        for d in doors_list:
-            print(f" - Found: {d.get('mark')} - {d.get('location')}")
-
         return {"doors": doors_list}
 
     except Exception as e:
         print(f"❌ CRASH IN EXTRACT ENDPOINT: {e}")
-        # Return empty list so frontend doesn't break
         return {"doors": []}

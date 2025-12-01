@@ -2,12 +2,8 @@ fastapi
 uvicorn
 python-dotenv
 langchain
-langchain-openai
-langchain-community
+langchain-google-genai
 langchain-pinecone
-langchain-huggingface
+langchain-community
 pinecone-client
 pydantic
-pymupdf
-langchain-google-genai
-# Add numpy or pandas ONLY if your code explicitly imports them
