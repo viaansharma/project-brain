@@ -50,7 +50,7 @@ Install dependencies: npm install
 
 Set up .env:
 
-NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_API_URL=https://project-brain-yzjp.onrender.com
 
 
 Run app: npm start
