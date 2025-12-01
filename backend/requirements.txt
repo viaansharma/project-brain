@@ -1,7 +1,10 @@
 fastapi
 uvicorn
 python-dotenv
-langchain
+
+Force a recent, stable version of langchain to fix the "chains" missing error
+
+langchain>=0.2.0
 langchain-google-genai
 langchain-pinecone
 langchain-community
