@@ -78,7 +78,7 @@ uvicorn main:app --reload
 cd frontend
 npm install
 # Create a .env.local file in /frontend:
-# NEXT_PUBLIC_API_URL=[http://127.0.0.1:8000](http://127.0.0.1:8000)
+# NEXT_PUBLIC_API_URL=[https://project-brain-yzjp.onrender.com](https://project-brain-yzjp.onrender.com)
 
 npm run dev
 
