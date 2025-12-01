@@ -1,98 +1,74 @@
-Project Brain: Construction AI Assistant 
+Project Brain 🧠 - Construction Intelligence AI
 
-A RAG (Retrieval Augmented Generation) system designed to answer questions and extract structured data from construction specifications.
+A RAG-based LLM application that helps construction teams find information and extract schedules from PDF documents instantly.
 
- Live Demo
+Live Demo: https://project-brain-puce.vercel.app
+(Login with: testingcheckuser1234@gmail.com)
 
-Frontend: [Add your Vercel URL here]
+🚀 Features
 
-Backend: [Add your Render URL here] (or "Run locally due to CPU embeddings")
+Q&A Chat: Ask natural language questions about construction specs.
 
-🛠️ Tech Stack
+Source Citations: Every answer links back to the specific PDF page.
 
-Frontend: Next.js 14, Tailwind CSS, React Markdown
+Structured Extraction: Automatically generates a "Door Schedule" JSON table from messy text.
 
-Backend: FastAPI, Python 3.12
+Evaluation Pipeline: Includes a script to verify accuracy.
 
-AI/LLM: Google Gemini 2.0 Flash (via LangChain)
+🛠 Tech Stack
 
-Embeddings: HuggingFace all-MiniLM-L6-v2 (Local/Free)
+Frontend: React, Tailwind CSS (Deployed on Vercel)
+
+Backend: FastAPI, Python (Deployed on Render)
+
+AI Engine: Google Gemini Pro 2.0 (via LangChain)
 
 Vector DB: Pinecone (Serverless)
 
-PDF Parsing: PyMuPDF
+🏃‍♂️ How to Run Locally
 
-⚙️ Architecture Decisions
+Backend
 
-1. Ingestion Strategy
+Navigate to backend: cd backend
 
-I chose PyMuPDF for parsing because it reliably extracts text from table-heavy construction documents unlike standard OCR.
+Install dependencies: pip install -r requirements.txt
 
-Chunking: Used RecursiveCharacterTextSplitter with a chunk size of 1000 characters and 200 overlap. This large window ensures that "Door Schedules" (which span wide rows) are kept together in a single context window.
+Set up .env file:
 
-Metadata: Filenames and page numbers are preserved to ensure every AI answer provides a citation.
-
-2. RAG Pipeline
-
-The system uses a "Hybrid" approach for cost-efficiency:
-
-Embeddings are generated locally using HuggingFace. This keeps the ingestion zero-cost and strictly private.
-
-Generation uses Google's gemini-2.0-flash, which offers a massive context window suitable for reading heavy technical specs.
-
-3. Structured Extraction
-
-For the "Door Schedule" task, I utilized Gemini's structured output capabilities. Instead of relying on regex, the system feeds the raw text segments containing "Door", "Hardware", or "Schedule" keywords into the LLM and enforces a strict Pydantic schema (DoorSchedule) to guarantee valid JSON output for the frontend table.
-
- How to Run Locally
-
-Prerequisites
-
-Python 3.10+
-
-Node.js 18+
-
-API Keys for Google Gemini & Pinecone
-
-1. Backend Setup
-
-cd backend
-python -m venv venv
-source venv/bin/activate  # (Windows: venv\Scripts\activate)
-pip install -r requirements.txt
-
-# Create a .env file in /backend:
-# GOOGLE_API_KEY=AIza...
-# PINECONE_API_KEY=pc...
-# PINECONE_INDEX_NAME=construction-index
-
-# Run Ingestion
-python ingest.py
-
-# Start Server
-uvicorn main:app --reload
+GOOGLE_API_KEY=your_key
+PINECONE_API_KEY=your_key
+PINECONE_INDEX_NAME=construction-index
 
 
-2. Frontend Setup
+Run server: uvicorn main:app --reload
 
-cd frontend
-npm install
-# Create a .env.local file in /frontend:
-# NEXT_PUBLIC_API_URL=[https://project-brain-yzjp.onrender.com](https://project-brain-yzjp.onrender.com)
+Frontend
 
-npm run dev
+Navigate to frontend: cd frontend
+
+Install dependencies: npm install
+
+Set up .env:
+
+NEXT_PUBLIC_API_URL=http://localhost:8000
 
 
-🧪 Evaluation
+Run app: npm start
 
-I included a debug_chat.py and debug_pdf.py script to validate:
+🧠 Design Decisions
 
-PDF readability (PyMuPDF verification).
+Chunking & Indexing
 
-Embedding dimension consistency (384 dim).
+I used RecursiveCharacterTextSplitter with a chunk size of 1000 tokens and 200 overlap. This ensures that context (like table headers) is preserved across chunks.
 
-LLM connectivity checks.
+RAG Pipeline
 
-📄 License
+Query Analysis: The user query is embedded using GoogleGenerativeAIEmbeddings.
 
-MIT
+Retrieval: We fetch the top 3 most relevant chunks from Pinecone.
+
+Generation: We pass the context + prompt to Gemini-2.0-Flash to generate a concise answer with citations.
+
+Structured Extraction
+
+For the "Door Schedule" task, I used a specific prompt engineering strategy to force the LLM to output valid JSON (doors: []), which is then parsed and displayed as a React Table.
